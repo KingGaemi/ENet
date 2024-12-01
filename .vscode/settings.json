@@ -93,6 +93,7 @@
         "*.tcc": "cpp",
         "memory_resource": "cpp",
         "text_encoding": "cpp",
-        "cinttypes": "cpp"
+        "cinttypes": "cpp",
+        "semaphore": "cpp"
     }
 }

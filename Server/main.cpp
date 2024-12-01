@@ -14,7 +14,7 @@ private:
 public:
     ClientData(int id) : m_id(id){}
 
-    void SetUserName(std::string username) { m_username = username; }
+    void SetUsername(std::string username) { m_username = username; }
 
     int GetId(){return m_id;}
     std::string GetUserName(){return m_username;}
@@ -50,19 +50,28 @@ public:
         if (peer->data) {
             int id = static_cast<ClientData*>(peer->data)->GetId();
             client_map.erase(id);
+            delete static_cast<ClientData*>(peer->data);
             peer->data = NULL;
         }
     }
+
+    const std::map<int, std::unique_ptr<ClientData>>& GetClients() const {
+        return client_map;
+    }
+
 
     // 특정 클라이언트 데이터 가져오기
     ClientData* GetClient(int id) {
         return client_map.count(id) ? client_map[id].get() : nullptr;
     }
 
+
     // 모든 클라이언트에 브로드캐스트
     void BroadcastAll(ENetHost* server, const char* message) {
         for (const auto& [id, client] : client_map) {
-            BroadcastPacket(server, message);
+            if (client) {  // 유효한 클라이언트인지 확인
+                BroadcastPacket(server, message);
+            }
         }
     }
 };
@@ -115,11 +124,13 @@ void ParseData(ENetHost* server, int id, char* data, ClientManager& client_manag
                 return;
             }
 
+            
             sprintf(send_data, "2|%d|%s", id, username.c_str());
             
 
             BroadcastPacket(server, send_data);
-            client_map[id] -> SetUserName(username.c_str());
+            client_manager.GetClient(id) -> SetUsername(username.c_str());
+            
 
             break;
          
@@ -178,47 +189,52 @@ int main(int argc, char **argv)
             {
                 //New Connection
             case ENET_EVENT_TYPE_CONNECT:
-                printf("A new cient connected from %x:%u.\n", 
-                    event.peer -> address.host,
-                    event.peer -> address.port);
-                    for(auto const& x : client_map)
-                    {
-                        sprintf(send_data, "2|%d|%s", x.first, x.second->GetUserName().c_str());
-                        BroadcastPacket(server, send_data);
-                    }
-                    
-                    
-                    int id = client_manager.AddClient(event.peer);
+                {
+                    printf("A new cient connected from %x:%u.\n", 
+                        event.peer -> address.host,
+                        event.peer -> address.port);
 
-                    sprintf(data_to_send, "3|%d", id);
-                    SendPacket(event.peer, data_to_send);
+                        for(auto const& x : client_manager.GetClients())
+                        {
+                            sprintf(send_data, "2|%d|%s", x.first, x.second->GetUserName().c_str());
+                            BroadcastPacket(server, send_data);
+                        }
+                        
+                        
+                        int id = client_manager.AddClient(event.peer);
 
-                    
-                break;
-            
+                        sprintf(data_to_send, "3|%d", id);
+                        SendPacket(event.peer, data_to_send);
+
+                        
+                    break;
+                }
             case ENET_EVENT_TYPE_RECEIVE:
-                printf ("A packet of length %u containing %s was received from %x:%u on channel %u.\n",
-                        event.packet -> dataLength,
-                        event.packet -> data,
-                        event.peer ->  address.host,
-                        event.peer -> address.port,
-                        event.channelID);
+                {
+                    printf ("A packet of length %u containing %s was received from %x:%u on channel %u.\n",
+                            event.packet -> dataLength,
+                            event.packet -> data,
+                            event.peer ->  address.host,
+                            event.peer -> address.port,
+                            event.channelID);
 
-                        ParseData(server, static_cast<ClientData*>(event.peer->data)->GetId(), (char*)event.packet->data);
-                        enet_packet_destroy(event.packet);
-
-                break;
+                            ParseData(server, static_cast<ClientData*>(event.peer->data)->GetId(), (char*)event.packet->data, client_manager);
+                            enet_packet_destroy(event.packet);
+                    break;
+                }
             case ENET_EVENT_TYPE_DISCONNECT:
-                printf("%x:%u Disconnected\n",
-                    event.peer->address.host,
-                    event.peer->address.port);
+                {
+                    printf("%x:%u Disconnected\n",
+                        event.peer->address.host,
+                        event.peer->address.port);
 
-                
-                sprintf(disconnect_data, "4|%d", static_cast<ClientData*>(event.peer ->data)->GetId());
-                BroadcastPacket(server, disconnect_data);
+                    
+                    sprintf(disconnect_data, "4|%d", static_cast<ClientData*>(event.peer ->data)->GetId());
+                    BroadcastPacket(server, disconnect_data);
 
-                client_manager.RemoveClient(event.peer);    
-                break;
+                    client_manager.RemoveClient(event.peer);    
+                    break;
+                }
             }
         }
     }
