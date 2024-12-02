@@ -37,14 +37,13 @@ void SendPacket(ENetPeer* peer, const char* data)
     ENetPacket* packet = enet_packet_create(data, strlen(data) + 1, ENET_PACKET_FLAG_RELIABLE);
     enet_peer_send(peer, 0, packet);
 
-
 }
 
 
 
 void ParseData(const char* data)
 {
-    int data_type; // 1, 2, 3...
+    int data_type; // 1 = BroadCast Message, 2 = New Client ID, 3 = Set Client ID
     int id;
     sscanf(data, "%d|%d", &data_type, &id);
 
@@ -53,9 +52,14 @@ void ParseData(const char* data)
     case 1:
         if(id != CLIENT_ID)
         {
-            char msg[80];
-            sscanf(data, "%*d|%*d|[^|]", msg);
-            chatScreen.ShowChatMessage("client_map[id]->GetUsername().c_str()", msg);
+            std::string msg;
+            msg.resize(80);
+            sscanf(data, "%*d|%*d|%79[^\n]", &msg[0]);
+            msg.resize(strlen(msg.c_str())); // 정확한 길이로 축소
+
+
+            sscanf(data, "%*d|%*d|[^|]", msg.c_str());
+            chatScreen.ShowChatMessage(client_map[id]->GetUsername().c_str(), msg.c_str());
         }
 
         break;
@@ -64,7 +68,7 @@ void ParseData(const char* data)
         if(id != CLIENT_ID)
         {
             char username[80];
-            sscanf(data, "%d|%*d|%79[^|]", &username);
+            sscanf(data, "%*d|%*d|%79[^|]", &username);
 
             client_map[id] = new ClientData(id);
             client_map[id]->SetUserName(username);
@@ -135,7 +139,6 @@ int main(int argc, char ** argv)
 
     ENetHost* client;
     client = enet_host_create(NULL, 1, 1, 0, 0);
-
     if(client == NULL)
     {
         fprintf(stderr, "Creating client Error\n");
@@ -147,9 +150,7 @@ int main(int argc, char ** argv)
     ENetPeer* peer;
 
     enet_address_set_host(&address,"127.0.0.1");
-
     address.port = 7777;
-
 
     peer = enet_host_connect(client, &address, 1, 0);
 
@@ -200,9 +201,11 @@ int main(int argc, char ** argv)
     
 
     // GAME LOOP END
+    pthread_join(thread, NULL);
+
     enet_peer_disconnect(peer, 0);
 
-    pthread_join(thread, NULL);
+    
 
     
 

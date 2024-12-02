@@ -21,19 +21,38 @@ public:
 };
 
 
-void  BroadcastPacket(ENetHost* server, const char* data)
-{
-    ENetPacket* packet = enet_packet_create(data, strlen(data) + 1, ENET_PACKET_FLAG_RELIABLE);
-    
-    enet_host_broadcast(server, 0, packet); // host , channel, data
+void BroadcastPacket(ENetHost* server, const char* data) {
+    // Null 데이터 확인
+    if (!data) {
+        std::cerr << "BroadcastPacket: Null data provided!" << std::endl;
+        return;
+    }
 
+    // 데이터 크기 확인
+    size_t data_size = strlen(data);
+    if (data_size > ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE) {
+        std::cerr << "BroadcastPacket: Data size exceeds maximum packet size!" << std::endl;
+        return;
+    }
 
+    // 피어 연결 여부 확인
+    if (server->connectedPeers == 0) {
+        std::cerr << "BroadcastPacket: No connected peers to broadcast to!" << std::endl;
+        return;
+    }
+
+    // 패킷 생성 및 브로드캐스트
+    ENetPacket* packet = enet_packet_create(data, data_size + 1, ENET_PACKET_FLAG_RELIABLE);
+    enet_host_broadcast(server, 0, packet);
+
+    // 패킷 전송 완료 후 로그 출력 (디버깅용)
+    // std::cout << "Broadcasted Packet: " << data << std::endl;
 }
-
 
 class ClientManager {
 private:
     std::map<int, std::unique_ptr<ClientData>> client_map;
+    std::mutex client_map_mutex;
     int next_id = 0;
 
 public:
@@ -47,24 +66,43 @@ public:
 
     // 클라이언트 삭제
     void RemoveClient(ENetPeer* peer) {
-        if (peer->data) {
-            int id = static_cast<ClientData*>(peer->data)->GetId();
-            client_map.erase(id);
-            delete static_cast<ClientData*>(peer->data);
-            peer->data = NULL;
+        if (!peer->data) {
+            std::cerr << "RemoveClient: peer->data is NULL. Nothing to remove." << std::endl;
+            return;
         }
+        
+        std::lock_guard<std::mutex> lock(client_map_mutex);
+
+        auto* client_data = static_cast<ClientData*>(peer->data);
+        if (!client_data) {
+            std::cerr << "RemoveClient: peer->data does not point to valid ClientData." << std::endl;
+            return;
+        }
+
+        int id = client_data->GetId();
+        if (client_map.erase(id) == 0) {
+            std::cerr << "RemoveClient: Client ID " << id << " not found in client_map." << std::endl;
+        } else {
+            std::cout << "RemoveClient: Client ID " << id << " removed successfully." << std::endl;
+        }
+
+        delete client_data; // 메모리 해제
+        peer->data = NULL;  // 포인터 초기화
     }
 
+
+    // GetClients
     const std::map<int, std::unique_ptr<ClientData>>& GetClients() const {
         return client_map;
     }
 
 
     // 특정 클라이언트 데이터 가져오기
-    ClientData* GetClient(int id) {
+    ClientData* GetClientData(int id) {
         return client_map.count(id) ? client_map[id].get() : nullptr;
     }
 
+  
 
     // 모든 클라이언트에 브로드캐스트
     void BroadcastAll(ENetHost* server, const char* message) {
@@ -79,15 +117,17 @@ public:
 
 void  SendPacket(ENetPeer* peer, const char* data)
 {
+    // std::cout << "SendPacket: ";
     ENetPacket* packet = enet_packet_create(data, strlen(data) + 1, ENET_PACKET_FLAG_RELIABLE);
+    // std::cout << packet->data << std::endl;
     enet_peer_send(peer, 0, packet);
 
 
 }
 
-void ParseData(ENetHost* server, int id, char* data, ClientManager& client_manager)
+void ParseData(ENetHost* server,const int& id, char* data, ClientManager& client_manager)
 {
-    std::cout<< "PARSE: " << data << std::endl;
+    std::cout<< "PARSE: " << data << "id: " << id << std::endl;
     
     int data_type;
     sscanf(data, "%d|", &data_type);
@@ -107,7 +147,7 @@ void ParseData(ENetHost* server, int id, char* data, ClientManager& client_manag
 
             
             sprintf(send_data, "1|%d|%s", id, msg.c_str());
-
+            std::cout << "Send Data: " << send_data << std::endl;
             BroadcastPacket(server, send_data);
             break;
         }
@@ -129,13 +169,13 @@ void ParseData(ENetHost* server, int id, char* data, ClientManager& client_manag
             
 
             BroadcastPacket(server, send_data);
-            client_manager.GetClient(id) -> SetUsername(username.c_str());
+            client_manager.GetClientData(id) -> SetUsername(username.c_str());
             
 
             break;
          
         }
-           
+       
         default:
             break;
     }
